@@ -1,13 +1,14 @@
 from django.contrib import admin
 from django import forms
-from models import Fabricante, Modelo, Ubicacion, TipoLogin, Dispositivo
+from inventario.models import Fabricante, Modelo, Ubicacion, TipoLogin,\
+    Dispositivo, Backup
 from django.http import HttpResponse
-from tareas import Eleccion
+from tasks import Eleccion
 import csv
 
 
 def prep_field(obj, field):
-    """ Returns the field as a unicode string. If the field is a callable, it
+    """ Returns the_ field as a unicode string. If the field is a callable, it
     attempts to call it first, without arguments.
     """
     if '__' in field:
@@ -22,10 +23,11 @@ def prep_field(obj, field):
 
     attr = getattr(obj, field)
     output = attr() if callable(attr) else attr
+    print output
     return unicode(output).encode('utf-8') if output else ""
 
 
-def export_csv_action(description="Export as CSV", \
+def export_csv_action(description="Export as CSV",
                       fields=None, exclude=None, header=True):
     """ This function returns an export csv action. """
     def export_as_csv(modeladmin, request, queryset):
@@ -45,8 +47,8 @@ def export_csv_action(description="Export as CSV", \
 
         response = HttpResponse(mimetype='text/csv')
         response['Content-Disposition'] = 'attachment; filename=%s.csv' % (
-                unicode(opts).replace('.', '_')
-            )
+            unicode(opts).replace('.', '_')
+        )
 
         writer = csv.writer(response)
 
@@ -54,7 +56,7 @@ def export_csv_action(description="Export as CSV", \
             writer.writerow(labels if labels else field_names)
 
         for obj in queryset:
-            Eleccion([prep_field(obj, field) for field in field_names])
+            Eleccion.delay([prep_field(obj, field) for field in field_names])
             writer.writerow([prep_field(obj, field) for field in field_names])
         return response
     export_as_csv.short_description = description
@@ -88,28 +90,45 @@ class AdminTipoLogin(admin.ModelAdmin):
 
 
 class AdminDispositivo(admin.ModelAdmin):
-    list_display = ('Nombre_de_host', 'Ip', 'Puerto', 'Modelo', 'Ubicacion', \
-                    'Tipo_de_Login')
-    search_fields = ('Nombre_de_host', 'Modelo__Serie', \
+    list_display = ('Nombre_de_host', 'Ip', 'Puerto', 'Modelo', 'Ubicacion',
+                    'Tipo_de_Login', 'Backup_Ip', 'Ultimo_Backup')
+    search_fields = ('Nombre_de_host', 'Modelo__Serie',
                      'Modelo__Fabricante__Nombre')
     list_filter = ('Ubicacion', 'Puerto', 'Modelo', 'Tipo_de_Login')
     actions = [
-        export_csv_action("Backup y reporte",
-            fields=[
-                ('Nombre_de_host', 'Nombre_de_host'),
-                ('Ip', 'Ip'),
-                ('Modelo', 'Modelo'),
-                ('Ubicacion', 'Ubicacion'),
-                ('Puerto', 'Puerto'),
-                ('Tipo_de_Login__Nombre', 'Usuario'),
-                ('Tipo_de_Login__password', 'Password'),
+        export_csv_action("Backup y reporte", fields=[
+            ('Nombre_de_host', 'Nombre_de_host'),
+            ('Ip', 'Ip'),
+            ('Modelo', 'Modelo'),
+            ('Ubicacion', 'Ubicacion'),
+            ('Puerto', 'Puerto'),
+            ('Tipo_de_Login__Nombre', 'Usuario'),
+            ('Tipo_de_Login__password', 'Password'),
+            ('Backup_Ip', 'Backup_Ip'),
             ],
             header=False,
         ),
     ]
+
+
+class FormBackup(forms.ModelForm):
+    class Meta:
+        model = Backup
+        widgets = {'dispositivo': forms.TextInput()}
+
+
+class AdminBackup(admin.ModelAdmin):
+    form = FormBackup
+    list_display = ('dispositivo', 'fecha', 'verificacion',)
+    search_fields = ('dispositivo__Nombre_de_host',)
+    list_filter = (
+        'fecha',
+        'dispositivo__Ubicacion',
+        'dispositivo__Modelo')
 
 admin.site.register(Fabricante, AdminFabricante)
 admin.site.register(Modelo, AdminModelo)
 admin.site.register(Ubicacion, AdminUbicacion)
 admin.site.register(TipoLogin, AdminTipoLogin)
 admin.site.register(Dispositivo, AdminDispositivo)
+admin.site.register(Backup, AdminBackup)
